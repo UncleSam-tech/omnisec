@@ -1,6 +1,6 @@
 import { UnifiedThreatReport } from '../types.js';
 
-export function normalizeData(ip: string, vtData: any, gnData: any, abuseData: any, isCached: boolean, cachedLatency: number = 0): UnifiedThreatReport {
+export function normalizeData(ip: string, vtData: any, gnData: any, abuseData: any, pdData: any, isCached: boolean, cachedLatency: number = 0): UnifiedThreatReport {
   let riskScore = 0;
   let maliciousVotes = 0;
   let totalVotes = 0;
@@ -9,9 +9,13 @@ export function normalizeData(ip: string, vtData: any, gnData: any, abuseData: a
   
   let isp = 'Unknown';
   let country = 'Unknown';
-  let greyNoiseClassification = 'unknown';
-  let abuseConfidenceScore = 0;
+  let lastSeen = new Date().toISOString();
 
+  let greyNoiseClassification = undefined;
+  let abuseConfidenceScore = undefined;
+  let pulsediveRisk = undefined;
+
+  // VirusTotal
   if (vtData?.data?.attributes) {
     const attrs = vtData.data.attributes;
     if (attrs.last_analysis_stats) {
@@ -20,54 +24,65 @@ export function normalizeData(ip: string, vtData: any, gnData: any, abuseData: a
       const undetected = attrs.last_analysis_stats.undetected || 0;
       totalVotes = maliciousVotes + harmless + undetected;
     }
-    
     if (maliciousVotes > 0) {
-      riskScore += (maliciousVotes * 6); 
+      riskScore += (maliciousVotes * 5); 
       vendorsFlagged.push(`VirusTotal flagged by ${maliciousVotes} vendors`);
     }
-    if (attrs.tags && Array.isArray(attrs.tags)) {
-      knownTags.push(...attrs.tags);
-    }
+    if (attrs.tags && Array.isArray(attrs.tags)) knownTags.push(...attrs.tags);
     if (attrs.as_owner) isp = attrs.as_owner;
     if (attrs.country) country = attrs.country;
   }
 
+  // GreyNoise
   if (gnData) {
-    if (gnData.name) knownTags.push(gnData.name);
-    if (gnData.classification) {
-      greyNoiseClassification = gnData.classification;
-      if (gnData.classification === 'riot') {
-        riskScore = Math.max(0, riskScore - 20); // Benign
-      } else if (gnData.classification === 'malicious') {
-        riskScore += 25; // Known bad actor
-      }
-    }
+    greyNoiseClassification = gnData.classification;
+    if (gnData.name) knownTags.push(`GreyNoise Actor: ${gnData.name}`);
+    if (gnData.classification === 'malicious') riskScore += 40;
+    if (gnData.classification === 'benign') riskScore = Math.max(0, riskScore - 50);
   }
 
+  // AbuseIPDB
   if (abuseData) {
-    if (abuseData.abuseConfidenceScore) {
-      abuseConfidenceScore = abuseData.abuseConfidenceScore;
-      riskScore += (abuseData.abuseConfidenceScore * 0.4); 
+    abuseConfidenceScore = abuseData.abuseConfidenceScore;
+    if (abuseConfidenceScore) {
+      riskScore += (abuseConfidenceScore * 0.5); // Max 50 points from AbuseIPDB
     }
-    if (abuseData.isp && isp === 'Unknown') isp = abuseData.isp;
-    if (abuseData.countryCode && country === 'Unknown') country = abuseData.countryCode;
     if (abuseData.domain) knownTags.push(`Domain: ${abuseData.domain}`);
+    if (isp === 'Unknown' && abuseData.isp) isp = abuseData.isp;
+    if (country === 'Unknown' && abuseData.countryCode) country = abuseData.countryCode;
   }
 
-  riskScore = Math.floor(Math.min(riskScore, 100));
+  // Pulsedive
+  if (pdData) {
+    pulsediveRisk = pdData.risk;
+    if (pulsediveRisk === 'critical') riskScore += 50;
+    else if (pulsediveRisk === 'high') riskScore += 30;
+    else if (pulsediveRisk === 'medium') riskScore += 15;
+    else if (pulsediveRisk === 'low') riskScore += 5;
+    else if (pulsediveRisk === 'none') riskScore = Math.max(0, riskScore - 10);
+  }
 
+  riskScore = Math.floor(Math.max(0, Math.min(riskScore, 100)));
+
+  // A-F Risk Grading
   let riskGrade: "A" | "B" | "C" | "D" | "E" | "F" = "A";
-  if (riskScore >= 90) riskGrade = "F";
-  else if (riskScore >= 75) riskGrade = "E";
-  else if (riskScore >= 50) riskGrade = "D";
-  else if (riskScore >= 30) riskGrade = "C";
-  else if (riskScore >= 10) riskGrade = "B";
+  let recommendation = "Safe to connect. No threat detected by provided sources.";
 
-  let recommendation = "Safe to connect. A-Grade target.";
-  if (riskGrade === "F" || riskGrade === "E") recommendation = `CRITICAL RISK (${riskGrade}): Do not connect. High probability of malicious activity.`;
-  else if (riskGrade === "D" || riskGrade === "C") recommendation = `WARNING (${riskGrade}): Suspicious indicators found. Connect with extreme caution.`;
+  if (riskScore >= 75 || pulsediveRisk === 'critical') {
+    riskGrade = "F";
+    recommendation = "CRITICAL RISK: Do not connect. Target explicitly flagged as malicious across enterprise definitions.";
+  } else if (riskScore >= 50 || pulsediveRisk === 'high') {
+    riskGrade = "D";
+    recommendation = "WARNING: Suspicious indicators found. Connect with extreme caution. Likely an open proxy or threat.";
+  } else if (riskScore >= 20 || pulsediveRisk === 'medium') {
+    riskGrade = "C";
+    recommendation = "CAUTION: Minor flags detected. Likely spam or low-level internet background noise.";
+  } else if (riskScore > 0 || pulsediveRisk === 'low') {
+    riskGrade = "B";
+    recommendation = "INFO: Generally safe, but some minor historical activity observed.";
+  }
 
-  const noDataFound = (!vtData || !vtData.data) && !gnData && (!abuseData || abuseData.totalReports === 0);
+  const noDataFound = !vtData && !gnData && (!abuseData || abuseData.totalReports === 0) && (!pdData || pulsediveRisk === 'unknown');
 
   return {
     summary: `OmniSec Unified Intelligence for ${ip}: Actionable Risk Grade [${riskGrade}]. Risk Score: ${riskScore}/100.`,
@@ -82,15 +97,13 @@ export function normalizeData(ip: string, vtData: any, gnData: any, abuseData: a
       vendorsFlagged,
       greyNoiseClassification,
       abuseConfidenceScore,
+      pulsediveRisk,
       isp,
       country,
-      lastSeen: new Date().toISOString()
+      lastSeen
     },
-    caching: {
-      hit: isCached,
-      latencyMs: cachedLatency
-    },
+    caching: { hit: isCached, latencyMs: cachedLatency },
     searchExhausted: noDataFound,
-    noResultsReason: noDataFound ? "No threat data found across VirusTotal, GreyNoise, or AbuseIPDB. AI search definitively exhausted." : "Proprietary threat APIs successfully queried and normalized."
+    noResultsReason: noDataFound ? "No threat data found across any proprietary platform. Exhausted databases." : "Threat APIs successfully queried and normalized."
   };
 }

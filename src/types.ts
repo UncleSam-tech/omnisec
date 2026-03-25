@@ -12,6 +12,7 @@ export const unifiedThreatResultSchema = z.object({
   vendorsFlagged: z.array(z.string()),
   greyNoiseClassification: z.string().optional().describe("'noise' (internet scanner) or 'riot' (benign service) from GreyNoise"),
   abuseConfidenceScore: z.number().optional().describe("AbuseIPDB crowdsourced malicious confidence constraint"),
+  pulsediveRisk: z.string().optional().describe("Pulsedive risk evaluation indicator (none, low, medium, high, critical)"),
   isp: z.string().optional(),
   country: z.string().optional(),
   lastSeen: z.string().optional()
@@ -25,7 +26,7 @@ export const unifiedReportSchema = z.object({
     hit: z.boolean(),
     latencyMs: z.number()
   }),
-  searchExhausted: z.boolean().describe("Critical for Completeness Evaluation: Set to true if both APIs found zero results, ensuring AI agents don't retry execution."),
+  searchExhausted: z.boolean().describe("Critical for Completeness Evaluation: Set to true if APIs found zero results, ensuring AI agents don't retry execution."),
   noResultsReason: z.string().describe("Reasoning string for AI completeness when searchExhausted is true.")
 });
 
