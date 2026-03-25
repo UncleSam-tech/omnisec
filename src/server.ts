@@ -205,6 +205,34 @@ const port = process.env.PORT || 3000;
 
 app.use(express.json());
 
+app.get("/", (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <title>OmniSec Threat Normalizer MCP</title>
+      <style>
+        body { font-family: system-ui, -apple-system, sans-serif; background: #0a0a0a; color: #ffffff; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        .container { text-align: center; max-width: 600px; padding: 3rem; background: #111111; border-radius: 16px; border: 1px solid #333; box-shadow: 0 20px 40px rgba(0,0,0,0.8); }
+        h1 { background: linear-gradient(90deg, #bb86fc, #03dac6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 2.8rem; margin-bottom: 0.5rem; letter-spacing: -1px; }
+        p { color: #a0a0a0; line-height: 1.6; font-size: 1.1rem; }
+        .badge { display: inline-block; padding: 0.4rem 1rem; background: rgba(3, 218, 198, 0.1); border: 1px solid #03dac6; color: #03dac6; border-radius: 50px; font-weight: 600; font-size: 0.9rem; margin-bottom: 1.5rem; }
+        code { background: #000; padding: 0.3rem 0.6rem; border-radius: 6px; color: #bb86fc; font-family: monospace; border: 1px solid #222; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="badge">● TIER S EXECUTE ENGINE ONLINE</div>
+        <h1>OmniSec Intelligence</h1>
+        <p>The Unified Threat Normalizer MCP Server is actively running.</p>
+        <p>AI Agents: Connect via the Context Protocol SSE transport at <code>/sse</code></p>
+      </div>
+    </body>
+    </html>
+  `);
+});
+
 app.use("/sse", createContextMiddleware());
 app.use("/messages", createContextMiddleware());
 app.use("/mcp", createContextMiddleware());
