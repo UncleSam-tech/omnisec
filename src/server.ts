@@ -21,6 +21,13 @@ COMPOSABILITY WITH OTHER MCPs:
 
 EXAMPLE:
   "Find all threat types" → Call this, then browse_by_threat_type({ threat_type_id: "ip" })`,
+    _meta: {
+      surface: "execute",
+      queryEligible: true,
+      latencyClass: "instant",
+      rateLimit: { maxRequestsPerMinute: 300, cooldownMs: 0 },
+      pricing: { executeUsd: "0.0005" }
+    },
     inputSchema: {
       type: "object",
       properties: { limit: { type: "number", default: 50 } },
@@ -41,8 +48,11 @@ EXAMPLE:
           }
         },
         totalCount: { type: "number" },
-        fetchedAt: { type: "string", format: "date-time" }
-      }
+        fetchedAt: { type: "string", format: "date-time" },
+        searchExhausted: { type: "boolean" },
+        noResultsReason: { type: "string" }
+      },
+      required: ["threatTypes", "totalCount", "fetchedAt", "searchExhausted", "noResultsReason"]
     }
   },
   {
@@ -58,6 +68,13 @@ DATA FLOW:
 
 CROSS-PLATFORM COMPOSABILITY:
   Use identifiers provided here directly with other OSINT MCP tools.`,
+    _meta: {
+      surface: "execute",
+      queryEligible: true,
+      latencyClass: "instant",
+      rateLimit: { maxRequestsPerMinute: 200, cooldownMs: 0 },
+      pricing: { executeUsd: "0.0005" }
+    },
     inputSchema: {
       type: "object",
       properties: {
@@ -81,8 +98,11 @@ CROSS-PLATFORM COMPOSABILITY:
           }
         },
         totalCount: { type: "number" },
-        fetchedAt: { type: "string", format: "date-time" }
-      }
+        fetchedAt: { type: "string", format: "date-time" },
+        searchExhausted: { type: "boolean" },
+        noResultsReason: { type: "string" }
+      },
+      required: ["threat_type_id", "items", "totalCount", "fetchedAt", "searchExhausted", "noResultsReason"]
     }
   },
   {
@@ -91,7 +111,7 @@ CROSS-PLATFORM COMPOSABILITY:
     _meta: {
       surface: "execute",
       queryEligible: true,
-      latencyClass: "fast",
+      latencyClass: "instant",
       rateLimit: {
         maxRequestsPerMinute: 60,
         cooldownMs: 2000,
@@ -148,7 +168,9 @@ function createOmniSecServer() {
             { id: "ip", label: "IPv4 Address", slug: "ip" }
           ],
           totalCount: 1,
-          fetchedAt: new Date().toISOString()
+          fetchedAt: new Date().toISOString(),
+          searchExhausted: false,
+          noResultsReason: "Successfully fetched all available statically defined threat types."
         } as unknown as Record<string, unknown>
       };
     }
@@ -166,7 +188,9 @@ function createOmniSecServer() {
             { title: "Public Cloudflare DNS", identifier: "1.1.1.1" }
           ],
           totalCount: 2,
-          fetchedAt: new Date().toISOString()
+          fetchedAt: new Date().toISOString(),
+          searchExhausted: false,
+          noResultsReason: "Successfully retrieved items dynamically mapped to threat type."
         } as unknown as Record<string, unknown>
       };
     }
