@@ -161,17 +161,19 @@ function createOmniSecServer() {
     const { name, arguments: args } = request.params;
 
     if (name === "get_all_threat_types") {
+      const resultData = {
+        threatTypes: [
+          { id: "ip", label: "IPv4 Address", slug: "ip" }
+        ],
+        totalCount: 1,
+        fetchedAt: new Date().toISOString(),
+        searchExhausted: false,
+        noResultsReason: "Successfully fetched all available statically defined threat types."
+      };
+      
       return {
-        content: [{ type: "text", text: "Successfully retrieved threat types." }],
-        structuredContent: {
-          threatTypes: [
-            { id: "ip", label: "IPv4 Address", slug: "ip" }
-          ],
-          totalCount: 1,
-          fetchedAt: new Date().toISOString(),
-          searchExhausted: false,
-          noResultsReason: "Successfully fetched all available statically defined threat types."
-        } as unknown as Record<string, unknown>
+        content: [{ type: "text", text: JSON.stringify(resultData, null, 2) }],
+        isError: false
       };
     }
 
@@ -179,19 +181,20 @@ function createOmniSecServer() {
       if (args?.threat_type_id !== "ip") {
         return { content: [{ type: "text", text: "Unsupported threat type." }], isError: true };
       }
+      const resultData = {
+        threat_type_id: "ip",
+        items: [
+          { title: "Public Google DNS", identifier: "8.8.8.8" },
+          { title: "Public Cloudflare DNS", identifier: "1.1.1.1" }
+        ],
+        totalCount: 2,
+        fetchedAt: new Date().toISOString(),
+        searchExhausted: false,
+        noResultsReason: "Successfully retrieved items dynamically mapped to threat type."
+      };
       return {
-        content: [{ type: "text", text: "Successfully retrieved recent threat indicators." }],
-        structuredContent: {
-          threat_type_id: "ip",
-          items: [
-            { title: "Public Google DNS", identifier: "8.8.8.8" },
-            { title: "Public Cloudflare DNS", identifier: "1.1.1.1" }
-          ],
-          totalCount: 2,
-          fetchedAt: new Date().toISOString(),
-          searchExhausted: false,
-          noResultsReason: "Successfully retrieved items dynamically mapped to threat type."
-        } as unknown as Record<string, unknown>
+        content: [{ type: "text", text: JSON.stringify(resultData, null, 2) }],
+        isError: false
       };
     }
 
@@ -204,11 +207,8 @@ function createOmniSecServer() {
         const result = await generateOmniSecReport(args.ip as string);
         
         return {
-          content: [
-            { type: "text", text: result.summary },
-            { type: "text", text: result.recommendation }
-          ],
-          structuredContent: result as unknown as Record<string, unknown>
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          isError: false
         };
       } catch (error: any) {
         return {
@@ -226,8 +226,6 @@ function createOmniSecServer() {
 
 const app = express();
 const port = process.env.PORT || 3000;
-
-app.use(express.json());
 
 app.get("/", (req, res) => {
   res.send(`
@@ -257,9 +255,9 @@ app.get("/", (req, res) => {
   `);
 });
 
-app.use("/sse", createContextMiddleware());
-app.use("/messages", createContextMiddleware());
-app.use("/mcp", createContextMiddleware());
+app.use("/sse", express.json(), createContextMiddleware());
+app.use("/messages", express.json(), createContextMiddleware());
+app.use("/mcp", express.json(), createContextMiddleware());
 
 const transports = new Map<string, SSEServerTransport>();
 
@@ -274,50 +272,21 @@ app.get("/sse", async (req, res) => {
 app.post("/messages", async (req, res) => {
   const sessionId = req.query.sessionId as string;
   const transport = transports.get(sessionId);
-  if (transport) await transport.handlePostMessage(req, res);
+  if (transport) await transport.handlePostMessage(req, res, req.body);
   else res.status(400).json({ error: "No active session" });
 });
 
-app.all("/mcp", async (req, res) => {
+app.post("/mcp", async (req, res) => {
   try {
     const { StreamableHTTPServerTransport } = await import(
       "@modelcontextprotocol/sdk/server/streamableHttp.js"
     );
-
-    const body = req.body;
-    const isInitialize =
-      body?.method === "initialize" ||
-      (Array.isArray(body) && body.some((m: any) => m.method === "initialize"));
-
-    if (isInitialize || req.method === "GET") {
-      const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => crypto.randomUUID(),
-        onsessioninitialized: (sessionId: string) => {
-          transports.set(sessionId, transport as any);
-        },
-      });
-
-      transport.onclose = () => {
-        const sid = (transport as any).sessionId;
-        if (sid) transports.delete(sid);
-      };
-
-      const server = createOmniSecServer();
-      await server.connect(transport);
-      await transport.handleRequest(req, res, body);
-      return;
-    }
-
-    const sessionId = req.headers["mcp-session-id"] as string | undefined;
-    if (sessionId && transports.has(sessionId)) {
-      const t = transports.get(sessionId)!;
-      if ("handleRequest" in t) await (t as any).handleRequest(req, res, body);
-      return;
-    }
-
-    res.status(400).json({ jsonrpc: "2.0", error: { code: -32000, message: "No active session" }, id: body?.id ?? null });
-  } catch (err) {
-    if (!res.headersSent) res.status(500).json({ jsonrpc: "2.0", error: { code: -32603, message: "Internal server error" }, id: null });
+    const mcpServer = createOmniSecServer();
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    await mcpServer.connect(transport);
+    await transport.handleRequest(req, res, req.body);
+  } catch (err: any) {
+    if (!res.headersSent) res.status(500).json({ error: err.message });
   }
 });
 
