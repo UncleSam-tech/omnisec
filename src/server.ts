@@ -147,6 +147,20 @@ CROSS-PLATFORM COMPOSABILITY:
   }
 ];
 
+function successResult(data: Record<string, unknown>): any {
+  return {
+    content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+    structuredContent: data,
+  };
+}
+
+function errorResult(message: string): any {
+  return {
+    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    isError: true,
+  };
+}
+
 function createOmniSecServer() {
   const server = new Server(
     { name: "omnisec", version: "2.0.0" },
@@ -161,64 +175,48 @@ function createOmniSecServer() {
     const { name, arguments: args } = request.params;
 
     if (name === "get_all_threat_types") {
-      return {
-        content: [{ type: "text", text: "Successfully retrieved threat types." }],
-        structuredContent: {
-          threatTypes: [
-            { id: "ip", label: "IPv4 Address", slug: "ip" }
-          ],
-          totalCount: 1,
-          fetchedAt: new Date().toISOString(),
-          searchExhausted: false,
-          noResultsReason: "Successfully fetched all available statically defined threat types."
-        } as unknown as Record<string, unknown>
-      };
+      return successResult({
+        threatTypes: [
+          { id: "ip", label: "IPv4 Address", slug: "ip" }
+        ],
+        totalCount: 1,
+        fetchedAt: new Date().toISOString(),
+        searchExhausted: false,
+        noResultsReason: "Successfully fetched all available statically defined threat types."
+      });
     }
 
     if (name === "browse_by_threat_type") {
       if (args?.threat_type_id !== "ip") {
-        return { content: [{ type: "text", text: "Unsupported threat type." }], isError: true };
+        return errorResult("Unsupported threat type.");
       }
-      return {
-        content: [{ type: "text", text: "Successfully retrieved recent threat indicators." }],
-        structuredContent: {
-          threat_type_id: "ip",
-          items: [
-            { title: "Public Google DNS", identifier: "8.8.8.8" },
-            { title: "Public Cloudflare DNS", identifier: "1.1.1.1" }
-          ],
-          totalCount: 2,
-          fetchedAt: new Date().toISOString(),
-          searchExhausted: false,
-          noResultsReason: "Successfully retrieved items dynamically mapped to threat type."
-        } as unknown as Record<string, unknown>
-      };
+      return successResult({
+        threat_type_id: "ip",
+        items: [
+          { title: "Public Google DNS", identifier: "8.8.8.8" },
+          { title: "Public Cloudflare DNS", identifier: "1.1.1.1" }
+        ],
+        totalCount: 2,
+        fetchedAt: new Date().toISOString(),
+        searchExhausted: false,
+        noResultsReason: "Successfully retrieved items dynamically mapped to threat type."
+      });
     }
 
     if (name === "query_threat_intelligence") {
       if (!args?.ip) {
-        return { content: [{ type: "text", text: "Missing required parameter: ip" }], isError: true };
+        return errorResult("Missing required parameter: ip");
       }
 
       try {
         const result = await generateOmniSecReport(args.ip as string);
-        
-        return {
-          content: [
-            { type: "text", text: result.summary },
-            { type: "text", text: result.recommendation }
-          ],
-          structuredContent: result as unknown as Record<string, unknown>
-        };
+        return successResult(result as unknown as Record<string, unknown>);
       } catch (error: any) {
-        return {
-          content: [{ type: "text", text: "Error: " + error.message }],
-          isError: true
-        };
+        return errorResult(error.message);
       }
     }
 
-    return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
+    return errorResult(`Unknown tool: ${name}`);
   });
 
   return server;
